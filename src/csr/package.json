@@ -32,7 +32,7 @@
     "dotenv-expand": "5.1.0",
     "file-loader": "4.3.0",
     "fs-extra": "^8.1.0",
-    "history": "^4.10.1",
+    "history": "^5.0.0",
     "html-webpack-plugin": "4.0.0",
     "identity-obj-proxy": "3.0.0",
     "jest-environment-jsdom-fourteen": "1.0.1",
