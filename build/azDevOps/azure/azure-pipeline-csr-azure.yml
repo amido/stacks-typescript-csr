@@ -56,8 +56,8 @@ variables:
   self_pipeline_repo: "$(Agent.BuildDirectory)/s/stacks-pipeline-templates"
   self_pipeline_scripts_dir: "$(self_pipeline_repo)/scripts"
   # TF STATE CONFIG
-  tf_state_rg: "amido-stacks-rg-uks"
-  tf_state_storage: "amidostackstfstategbl"
+  tf_state_rg: "Stacks-Ancillary-Resources"
+  tf_state_storage: "amidostackstfstate"
   tf_state_container: "tfstate"
   # Stacks operates Terraform states based on workspaces **IT IS VERY IMPORTANT** that you ensure a unique name for each application definition
   # Furthermore **IT IS VERY IMPORTANT** that you change the name of a workspace for each deployment stage
@@ -75,10 +75,14 @@ variables:
   # BUILD ARTIFACTS across stages
   build_artifact_deploy_path: $(self_project_dir)
   build_artifact_deploy_name: $(self_generic_name)
-  # Networking
+  # Environment
+  # Set the name of the resource group that has the DNS zones to be updated
+  dns_zone_resource_group: "Stacks-Ancillary-Resources"
+  # Infra
+  region: "westeurope"
   base_domain_nonprod: nonprod.amidostacks.com
   base_domain_prod: prod.amidostacks.com
-  pool_vm_image: ubuntu-18.04
+  pool_vm_image: ubuntu-20.04
   # Yamllint
   yamllint_config_file: "${{ variables.self_repo_dir }}/yamllint.conf"
   yamllint_scan_directory: "."
@@ -87,7 +91,16 @@ stages:
   - stage: Build
     variables:
       - group: amido-stacks-infra-credentials-nonprod
+      - group: stacks-credentials-nonprod-kv
       - group: amido-stacks-webapp-csr
+      - name: azure_tenant_id
+        value: "$(azure-tenant-id)"
+      - name: azure_subscription_id
+        value: "$(azure-subscription-id)"
+      - name: azure_client_id
+        value: "$(azure-client-id)"
+      - name: azure_client_secret
+        value: "$(azure-client-secret)"
     jobs:
       - job: WebAppBuild
         pool:
@@ -153,6 +166,7 @@ stages:
     condition: and(succeeded(), ne(variables['Build.SourceBranch'], 'refs/heads/master'))
     variables:
       - group: amido-stacks-infra-credentials-nonprod
+      - group: stacks-credentials-nonprod-kv
       - group: amido-stacks-webapp-csr
       - name: Environment.ShortName
         value: dev
@@ -175,11 +189,12 @@ stages:
                 # Create TF infra
                 - template: azDevOps/azure/templates/v2/steps/login-services.yml@templates
                   parameters:
+                    container: terraform_custom  # force the use of the current container which has the login credentials
                     login_azure: true
-                    azure_tenant_id: $(azure_tenant_id)
-                    azure_subscription_id: $(azure_subscription_id)
-                    azure_client_id: $(azure_client_id)
-                    azure_client_secret: $(azure_client_secret)
+                    azure_tenant_id: $(azure-tenant-id)
+                    azure_subscription_id: $(azure-subscription-id)
+                    azure_client_id: $(azure-client-id)
+                    azure_client_secret: $(azure-client-secret)
 
                 - template: azDevOps/azure/templates/v2/steps/deploy-terraform-meta-generic.yml@templates
                   parameters:
@@ -190,10 +205,10 @@ stages:
                     terraform_output_artefact: 'tfoutputs'
                     # Auth config
                     terraform_auth_properties: {
-                      ARM_CLIENT_ID: $(azure_client_id),
-                      ARM_CLIENT_SECRET: $(azure_client_secret),
-                      ARM_SUBSCRIPTION_ID: $(azure_subscription_id),
-                      ARM_TENANT_ID: $(azure_tenant_id)
+                      ARM_CLIENT_ID: $(azure-client-id),
+                      ARM_CLIENT_SECRET: $(azure-client-secret),
+                      ARM_SUBSCRIPTION_ID: $(azure-subscription-id),
+                      ARM_TENANT_ID: $(azure-tenant-id)
                     }
                     # Terraform State Config
                     terraform_init_backend_config: '-backend-config="key=$(tf_state_key)" -backend-config="storage_account_name=$(tf_state_storage)" -backend-config="resource_group_name=$(tf_state_rg)" -backend-config="container_name=$(tf_state_container)"'
@@ -201,7 +216,7 @@ stages:
                     tags: ''
                     # Terraform Resource Specific Config
                     terraform_extra_properties: {
-                      TF_VAR_resource_group_location: northeurope,
+                      TF_VAR_resource_group_location: $(region),
                       TF_VAR_name_company: $(company),
                       TF_VAR_name_project: $(project),
                       TF_VAR_name_component: $(domain),
@@ -212,9 +227,9 @@ stages:
                       TF_VAR_enabled: "true",
                       TF_VAR_dns_zone: $(base_domain_nonprod),
                       TF_VAR_dns_record: $(Environment.ShortName)-csr-app,
-                      TF_VAR_app_insights_name: "amido-stacks-nonprod-eun-core",
+                      TF_VAR_app_insights_name: "amido-stacks-nonprod-euw-core",
                       TF_VAR_create_dns_zone: false,
-                      TF_VAR_dns_resource_group: "amido-stacks-nonprod-eun-core",
+                      TF_VAR_dns_resource_group: "$(dns_zone_resource_group)",
                       TF_VAR_response_header_cdn: '[
                         {
                           action: "Append",
@@ -295,6 +310,7 @@ stages:
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
     variables:
       - group: amido-stacks-infra-credentials-prod
+      - group: stacks-credentials-prod-kv
       - group: amido-stacks-webapp-csr
       - name: Environment.ShortName
         value: prod
@@ -317,11 +333,12 @@ stages:
                 # Create TF infra
                 - template: azDevOps/azure/templates/v2/steps/login-services.yml@templates
                   parameters:
+                    container: terraform_custom  # force the use of the current container which has the login credentials
                     login_azure: true
-                    azure_tenant_id: $(prod_azure_tenant_id)
-                    azure_subscription_id: $(prod_azure_subscription_id)
-                    azure_client_id: $(prod_azure_client_id)
-                    azure_client_secret: $(prod_azure_client_secret)
+                    azure_tenant_id: $(prod-azure-tenant-id)
+                    azure_subscription_id: $(prod-azure-subscription-id)
+                    azure_client_id: $(prod-azure-client-id)
+                    azure_client_secret: $(prod-azure-client-secret)
 
                 - template: azDevOps/azure/templates/v2/steps/deploy-terraform-meta-generic.yml@templates
                   parameters:
@@ -332,10 +349,10 @@ stages:
                     terraform_output_artefact: 'tfoutputs'
                     # Auth config
                     terraform_auth_properties: {
-                      ARM_CLIENT_ID: $(prod_azure_client_id),
-                      ARM_CLIENT_SECRET: $(prod_azure_client_secret),
-                      ARM_SUBSCRIPTION_ID: $(prod_azure_subscription_id),
-                      ARM_TENANT_ID: $(prod_azure_tenant_id)
+                      ARM_CLIENT_ID: $(prod-azure-client-id),
+                      ARM_CLIENT_SECRET: $(prod-azure-client-secret),
+                      ARM_SUBSCRIPTION_ID: $(prod-azure-subscription-id),
+                      ARM_TENANT_ID: $(prod-azure-tenant-id)
                     }
                     # Terraform State Config
                     terraform_init_backend_config: '-backend-config="key=$(tf_state_key)" -backend-config="storage_account_name=$(tf_state_storage)" -backend-config="resource_group_name=$(tf_state_rg)" -backend-config="container_name=$(tf_state_container)"'
@@ -343,7 +360,7 @@ stages:
                     tags: ''
                     # Terraform Resource Specific Config
                     terraform_extra_properties: {
-                      TF_VAR_resource_group_location: northeurope,
+                      TF_VAR_resource_group_location: $(region),
                       TF_VAR_name_company: $(company),
                       TF_VAR_name_project: $(project),
                       TF_VAR_name_component: $(domain),
@@ -354,9 +371,9 @@ stages:
                       TF_VAR_enabled: "true",
                       TF_VAR_dns_zone: $(base_domain_prod),
                       TF_VAR_dns_record: $(Environment.ShortName)-csr-app,
-                      TF_VAR_app_insights_name: "amido-stacks-prod-eun-core",
+                      TF_VAR_app_insights_name: "amido-stacks-prod-euw-core",
                       TF_VAR_create_dns_zone: false,
-                      TF_VAR_dns_resource_group: "amido-stacks-prod-eun-core",
+                      TF_VAR_dns_resource_group: "$(dns_zone_resource_group)",
                       TF_VAR_response_header_cdn: '[
                         {
                           action: "Append",
